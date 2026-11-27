@@ -2627,7 +2627,7 @@ async function accountabilityPDF(name,items,licenses){
   const money=v=>(parseFloat(v)||0).toLocaleString('en-PH',{minimumFractionDigits:2});
   const nameParts=String(name||'').replace(/[,.]/g,' ').split(/\s+/).filter(Boolean);
   const initials=[...new Set([0,1,nameParts.length-1])].filter(k=>k>=0&&k<nameParts.length).map(k=>nameParts[k][0].toUpperCase()).join('');
-  const ISSUER='DANEL LUMANDAZ',HR='LOIDA FUTOL',ACCT='PRINCESS MARTINEZ';
+  const ISSUER='DANEL LUMANDAZ',HR='',ACCT='';
   let y=TOP,fid=0,endX=L,endY=y;
   /* fillable form fields (positions in mm -> points) */
   const addText=(x,fy,w,h,val,fname,o)=>{
@@ -2742,7 +2742,7 @@ async function accountabilityPDF(name,items,licenses){
   heading('Part E. Return and Clearance');
   lineField([{t:'Complete this part on return, transfer, or separation. Reason for return: Resignation / Termination / Transfer / '},{t:'Replacement',b:1},{t:' / Other:'}],'E_reason','',9.5);
   y+=2;
-  const retBody=[];const retN=Math.max(5,items.length);for(let x=1;x<=retN;x++){const n='E_row'+x+'_';const it=items[x-1];const itTxt=it?[it.name,autoAcc(it)?'(+ '+autoAcc(it)+')':''].filter(Boolean).join(' '):'';retBody.push([x,F(n+'item',itTxt),F(n+'returned',''),F(n+'condition',''),F(n+'missing',''),F(n+'amount','')])}
+  const retBody=[];const retN=Math.max(5,items.length);for(let x=1;x<=retN;x++){const n='E_row'+x+'_';const it=items[x-1];const itTxt=it?[it.name,autoAcc(it)?'(+ '+autoAcc(it)+')':''].filter(Boolean).join(' '):'';retBody.push([x,F(n+'item',''),F(n+'returned',''),F(n+'condition',''),F(n+'missing',''),F(n+'amount','')])}
   tbl({head:[['#','Item','Returned\n(Y/N)','Condition on\nreturn','Missing /\ndamaged parts','Amount\ncharged (PHP)']],body:retBody,
     columnStyles:{0:{cellWidth:12},1:{cellWidth:44},2:{cellWidth:24},3:{cellWidth:32},4:{cellWidth:36},5:{cellWidth:34}},
     styles:{font:'helvetica',fontSize:9,textColor:0,lineColor:0,lineWidth:0.2,cellPadding:2,valign:'top',minCellHeight:10}});
