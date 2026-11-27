@@ -1027,7 +1027,7 @@ function DashboardTab({inventory,auditLogs,maintLogs,activity}){
   );
 }
 function AssetModal({open,onClose,onSave,editing,inventory, initialSerial, template}){
-  const EMPTY={id:'',name:'',category:'Laptops',serial:'',brand:'',status:'Available',user:'',empId:'',position:'',immHead:'',empStatus:'',purpose:'',dept:'',contact:'',email:'',location:'',purchaseDate:'',warrantyDate:'',cost:'',condition:'Good',notes:'',attachment:'',photo:''};
+  const EMPTY={id:'',name:'',category:'Laptops',serial:'',brand:'',status:'Available',user:'',empId:'',position:'',immHead:'',empStatus:'',purpose:'',dept:'',contact:'',email:'',location:'',purchaseDate:'',warrantyDate:'',cost:'',condition:'Good',accessories:'',notes:'',attachment:'',photo:''};
   const[form,setForm]=useState(EMPTY);
   const[err,setErr]=useState('');
   useEffect(()=>{
@@ -1153,6 +1153,7 @@ function AssetModal({open,onClose,onSave,editing,inventory, initialSerial, templ
           inp('Warranty Expiry','warrantyDate',{type:'date'}),
           inp('Cost (₱)','cost',{type:'number',placeholder:'0.00'}),
           inp('Condition','condition',{type:'select',options:conds}),
+          inp('Accessories Included','accessories',{placeholder:'e.g. Charger, laptop bag, mouse, SIM card'}),
         ),
         R.createElement('div',{className:'fg'},R.createElement('label',null,'Notes'),
           R.createElement('textarea',{className:'fc',rows:2,placeholder:'Additional details…',value:form.notes,onChange:e=>set('notes',e.target.value)})
@@ -1236,6 +1237,7 @@ function ViewModal({item,open,onClose,onEdit,canEdit}){
           row('Immediate Head',item.immHead),
           row('Employment Status',item.empStatus),
           row('Purpose of Use',item.purpose),
+          row('Accessories Included',item.accessories),
           row('Department / Branch',item.dept),
           row('Contact Number',item.contact),
           row('Company Email',item.email),
@@ -1298,8 +1300,8 @@ function InventoryTab({inventory,onAdd,onEdit,onDelete,onView,onClone,isAdmin}){
   }
   function exportSelectedCSV(){
     const rows=inventory.filter(i=>selected.size===0||selected.has(i.id));
-    const headers=['Tag','Name','Category','Serial','Brand','Status','Employee Name','Employee ID','Position / Title','Immediate Head','Employment Status','Purpose of Use','Department / Branch','Contact Number','Company Email','Location','Purchase Date','Warranty','Cost','Condition','Notes'];
-    downloadCSV('JBSY_Export',headers,rows.map(i=>[i.id,i.name,i.category,i.serial||'',i.brand||'',i.status,i.user||'',i.empId||'',i.position||'',i.immHead||'',i.empStatus||'',i.purpose||'',i.dept||'',i.contact||'',i.email||'',i.location||'',i.purchaseDate||'',i.warrantyDate||'',i.cost||0,i.condition||'',i.notes||'']));
+    const headers=['Tag','Name','Category','Serial','Brand','Status','Employee Name','Employee ID','Position / Title','Immediate Head','Employment Status','Purpose of Use','Department / Branch','Contact Number','Company Email','Location','Purchase Date','Warranty','Cost','Condition','Accessories Included','Notes'];
+    downloadCSV('JBSY_Export',headers,rows.map(i=>[i.id,i.name,i.category,i.serial||'',i.brand||'',i.status,i.user||'',i.empId||'',i.position||'',i.immHead||'',i.empStatus||'',i.purpose||'',i.dept||'',i.contact||'',i.email||'',i.location||'',i.purchaseDate||'',i.warrantyDate||'',i.cost||0,i.condition||'',i.accessories||'',i.notes||'']));
   }
   function toggleSort(col){if(sortCol===col)setSD(p=>p==='asc'?'desc':'asc');else{setSC(col);setSD('asc')}}
   const filtered=useMemo(()=>{
@@ -1878,7 +1880,7 @@ function ReportsTab({inventory,auditLogs,maintLogs,isAdmin}){
   const [showLabelModal, setShowLabelModal] = useState(false);
   function exportExcel(){
     if(!inventory.length){toast('No data to export','w');return}
-    const rows=inventory.map(i=>({'Asset Tag':i.id,'Name':i.name,'Category':i.category,'Serial':i.serial||'','Brand':i.brand||'','Status':i.status,'Employee Name':i.user||'','Employee ID':i.empId||'','Position / Title':i.position||'','Immediate Head':i.immHead||'','Employment Status':i.empStatus||'','Purpose of Use':i.purpose||'','Department / Branch':i.dept||'','Contact Number':i.contact||'','Company Email':i.email||'','Location':i.location||'','Purchase Date':i.purchaseDate||'','Warranty':i.warrantyDate||'','Cost':i.cost||0,'Condition':i.condition||'','Notes':i.notes||''}));
+    const rows=inventory.map(i=>({'Asset Tag':i.id,'Name':i.name,'Category':i.category,'Serial':i.serial||'','Brand':i.brand||'','Status':i.status,'Employee Name':i.user||'','Employee ID':i.empId||'','Position / Title':i.position||'','Immediate Head':i.immHead||'','Employment Status':i.empStatus||'','Purpose of Use':i.purpose||'','Department / Branch':i.dept||'','Contact Number':i.contact||'','Company Email':i.email||'','Location':i.location||'','Purchase Date':i.purchaseDate||'','Warranty':i.warrantyDate||'','Cost':i.cost||0,'Condition':i.condition||'','Accessories Included':i.accessories||'','Notes':i.notes||''}));
     const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Inventory');
     XLSX.writeFile(wb,'JBSY_Inventory_'+new Date().toISOString().slice(0,10)+'.xlsx');
@@ -1896,7 +1898,7 @@ function ReportsTab({inventory,auditLogs,maintLogs,isAdmin}){
         for(const r of rows){
           const id=String(r['Asset Tag']||r['Asset Tag ID']||uid());
           if(inventory.find(x=>x.id===id))continue;
-          const item={id,name:r['Name']||'Imported',category:r['Category']||'Accessories',serial:String(r['Serial']||''),brand:r['Brand']||'',status:r['Status']||'Available',user:r['Employee Name']||r['Assigned To']||'Unassigned',empId:String(r['Employee ID']||''),position:r['Position / Title']||'',immHead:r['Immediate Head']||'',empStatus:r['Employment Status']||'',purpose:r['Purpose of Use']||'',dept:r['Department / Branch']||'',contact:String(r['Contact Number']||''),email:r['Company Email']||'',location:r['Location']||'',purchaseDate:asDate(r['Purchase Date']),warrantyDate:asDate(r['Warranty']),cost:parseFloat(r['Cost']||0),condition:r['Condition']||'Good',notes:r['Notes']||'Imported',attachment:''};
+          const item={id,name:r['Name']||'Imported',category:r['Category']||'Accessories',serial:String(r['Serial']||''),brand:r['Brand']||'',status:r['Status']||'Available',user:r['Employee Name']||r['Assigned To']||'Unassigned',empId:String(r['Employee ID']||''),position:r['Position / Title']||'',immHead:r['Immediate Head']||'',empStatus:r['Employment Status']||'',purpose:r['Purpose of Use']||'',dept:r['Department / Branch']||'',contact:String(r['Contact Number']||''),email:r['Company Email']||'',location:r['Location']||'',purchaseDate:asDate(r['Purchase Date']),warrantyDate:asDate(r['Warranty']),cost:parseFloat(r['Cost']||0),condition:r['Condition']||'Good',accessories:r['Accessories Included']||r['Accessories']||'',notes:r['Notes']||'Imported',attachment:''};
           await dbPut('inventory',item);
         }
         window.location.reload();
@@ -2427,7 +2429,7 @@ function migrateDB(){
     CREATE TABLE IF NOT EXISTS stock (id TEXT PRIMARY KEY, name TEXT, category TEXT, qty INTEGER, minQty INTEGER, location TEXT, notes TEXT);
     CREATE TABLE IF NOT EXISTS stocktakes (id TEXT PRIMARY KEY, ts TEXT, scope TEXT, expected INTEGER, found INTEGER, missing TEXT, auditor TEXT);
   `);
-  ['attachment','empId','position','immHead','empStatus','purpose','dept','contact','email','photo'].forEach(c=>{try{db.run(`ALTER TABLE inventory ADD COLUMN ${c} TEXT`)}catch(e){}});
+  ['attachment','empId','position','immHead','empStatus','purpose','dept','contact','email','photo','accessories'].forEach(c=>{try{db.run(`ALTER TABLE inventory ADD COLUMN ${c} TEXT`)}catch(e){}});
   ['passwordHash','created'].forEach(c=>{try{db.run(`ALTER TABLE users ADD COLUMN ${c} TEXT`)}catch(e){}});
 }
 async function xPut(table,item){
@@ -2601,7 +2603,7 @@ async function accountabilityPDF(name,items,licenses){
   y+=1;
   const bRows=items.length?items:[{}];
   tbl({head:[['#','Item','Brand / Model','Serial No.','Asset Tag','Accessories included','Condition on issue','Value (PHP)']],
-    body:bRows.map((i,x)=>{const n='item'+(x+1)+'_';return[x+1,F(n+'name',i.name),F(n+'brand',i.brand),F(n+'serial',i.serial),F(n+'assetTag',i.id),F(n+'accessories',''),F(n+'condition',i.condition),F(n+'value',i.id?money(i.cost):'','right')]}),
+    body:bRows.map((i,x)=>{const n='item'+(x+1)+'_';return[x+1,F(n+'name',i.name),F(n+'brand',i.brand),F(n+'serial',i.serial),F(n+'assetTag',i.id),F(n+'accessories',i.accessories),F(n+'condition',i.condition),F(n+'value',i.id?money(i.cost):'','right')]}),
     columnStyles:{0:{cellWidth:8},1:{cellWidth:30},2:{cellWidth:30},3:{cellWidth:28},4:{cellWidth:20},5:{cellWidth:24},6:{cellWidth:20},7:{cellWidth:22,halign:'right'}}});
   y+=5;
   rich([{t:'Login / access issued (if any): ',b:1},{t:'company email, POS account, software licenses:'}],L,W,9);
@@ -2634,8 +2636,8 @@ async function accountabilityPDF(name,items,licenses){
   y+=12;
   heading('Part D. Acknowledgment of Receipt');
   tbl({head:[['Role','Name','Signature','Date']],body:[
-    ['Received by\n(Employee)',F('D_received_name',emp.name),F('D_received_signature',''),F('D_received_date','')],
-    ['Issued by (IT / Admin / Supervisor)',F('D_issued_name',ISSUER),F('D_issued_signature',''),F('D_issued_date','')],
+    ['Received by\n(Employee)',F('D_received_name',emp.name),F('D_received_signature',''),F('D_received_date',dateStr)],
+    ['Issued by (IT / Admin / Supervisor)',F('D_issued_name',ISSUER),F('D_issued_signature',''),F('D_issued_date',dateStr)],
     ['Noted by (HR)',F('D_noted_name',HR),F('D_noted_signature',''),F('D_noted_date','')],
     ['Recorded by\n(Accounting)',F('D_recorded_name',ACCT),F('D_recorded_signature',''),F('D_recorded_date','')]],
     topFields:true,columnStyles:{0:{cellWidth:42},1:{cellWidth:46},2:{cellWidth:52},3:{cellWidth:42}},
@@ -2646,7 +2648,7 @@ async function accountabilityPDF(name,items,licenses){
   heading('Part E. Return and Clearance');
   lineField([{t:'Complete this part on return, transfer, or separation. Reason for return: Resignation / Termination / Transfer / '},{t:'Replacement',b:1},{t:' / Other:'}],'E_reason','',9.5);
   y+=2;
-  const retBody=[];for(let x=1;x<=5;x++){const n='E_row'+x+'_';retBody.push([x,F(n+'item',''),F(n+'returned',''),F(n+'condition',''),F(n+'missing',''),F(n+'amount','')])}
+  const retBody=[];const retN=Math.max(5,items.length);for(let x=1;x<=retN;x++){const n='E_row'+x+'_';const it=items[x-1];const itTxt=it?[it.name,it.accessories?'(+ '+it.accessories+')':''].filter(Boolean).join(' '):'';retBody.push([x,F(n+'item',itTxt),F(n+'returned',''),F(n+'condition',''),F(n+'missing',''),F(n+'amount','')])}
   tbl({head:[['#','Item','Returned\n(Y/N)','Condition on\nreturn','Missing /\ndamaged parts','Amount\ncharged (PHP)']],body:retBody,
     columnStyles:{0:{cellWidth:12},1:{cellWidth:44},2:{cellWidth:24},3:{cellWidth:32},4:{cellWidth:36},5:{cellWidth:34}},
     styles:{font:'helvetica',fontSize:9,textColor:0,lineColor:0,lineWidth:0.2,cellPadding:2,valign:'top',minCellHeight:10}});
