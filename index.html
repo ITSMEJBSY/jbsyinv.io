@@ -1026,6 +1026,9 @@ function DashboardTab({inventory,auditLogs,maintLogs,activity}){
     )
   );
 }
+const DEFAULT_ACC={Laptops:'Charger, laptop bag, mouse',Desktops:'Power cable, keyboard, mouse',Monitors:'Power cable, HDMI/VGA cable',Servers:'Power cables, rack rails, network cable',Networking:'Power adapter, LAN cable',Peripherals:'USB cable',Accessories:'',Printers:'Power cable, USB cable, toner'};
+function defaultAcc(cat){return DEFAULT_ACC[cat]||''}
+function autoAcc(item){return String(item&&item.accessories||'').trim()||defaultAcc(item&&item.category)}
 function AssetModal({open,onClose,onSave,editing,inventory, initialSerial, template}){
   const EMPTY={id:'',name:'',category:'Laptops',serial:'',brand:'',status:'Available',user:'',empId:'',position:'',immHead:'',empStatus:'',purpose:'',dept:'',contact:'',email:'',location:'',purchaseDate:'',warrantyDate:'',cost:'',condition:'Good',accessories:'',notes:'',attachment:'',photo:''};
   const[form,setForm]=useState(EMPTY);
@@ -1037,12 +1040,12 @@ function AssetModal({open,onClose,onSave,editing,inventory, initialSerial, templ
         setForm(clean);
       } else {
         let id=uid();while(inventory.some(x=>x.id===id))id=uid();
-        setForm({...EMPTY, ...(template||{}), id, serial: initialSerial || ''});
+        const base={...EMPTY, ...(template||{}), id, serial: initialSerial || ''};if(!base.accessories)base.accessories=defaultAcc(base.category);setForm(base);
       }
       setErr('');
     }
   },[open,editing,initialSerial]);
-  function set(k,v){setForm(p=>({...p,[k]:v}))}
+  function set(k,v){setForm(p=>{const n={...p,[k]:v};if(k==='category'){const a=String(p.accessories||'').trim();if(!a||a===defaultAcc(p.category))n.accessories=defaultAcc(v)}return n})}
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1876,8 +1879,95 @@ function LabelPreviewModal({open, onClose, inventory}){
     )
   ), document.body);
 }
+function SingleLabelModal({open, onClose, inventory}){
+  const [mode, setMode] = useState('asset');
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState('');
+  const [encodeSerial, setEncodeSerial] = useState(false);
+  const employees = useMemo(() => {
+    const map = new Map();
+    inventory.forEach(i => {
+      const nm = String(i.user || '').trim();
+      if (!nm || nm === 'Unassigned') return;
+      const key = String(i.empId || '').trim() || nm;
+      if (!map.has(key)) map.set(key, {key, name: nm, empId: String(i.empId || '').trim(), position: i.position || '', dept: i.dept || ''});
+    });
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [inventory]);
+  useEffect(() => { if (open) { setQ(''); setSel(''); } }, [open, mode]);
+  const ql = q.trim().toLowerCase();
+  const assetOpts = inventory.filter(i => !ql || [i.id, i.name, i.serial, i.user].join(' ').toLowerCase().includes(ql));
+  const empOpts = employees.filter(e => !ql || [e.name, e.empId, e.dept].join(' ').toLowerCase().includes(ql));
+  const asset = mode === 'asset' ? inventory.find(i => i.id === sel) : null;
+  const emp = mode === 'employee' ? employees.find(e => e.key === sel) : null;
+  let val = '', line1 = '', info = '';
+  if (asset) {
+    val = encodeSerial && asset.serial ? asset.serial : asset.id;
+    line1 = asset.id;
+    info = [asset.name, asset.category, asset.brand, encodeSerial && asset.serial ? 'S/N: ' + asset.serial : ''].filter(Boolean).join(' · ');
+  } else if (emp) {
+    val = emp.empId || emp.name;
+    line1 = emp.empId || emp.name;
+    info = [emp.name, emp.position, emp.dept].filter(Boolean).join(' · ');
+  }
+  useEffect(() => {
+    if (!open || !val) return;
+    const t = setTimeout(() => {
+      try { JsBarcode('#sg-bc', val, {format: 'CODE128', width: 1.5, height: 50, displayValue: false, margin: 2, background: '#ffffff', lineColor: '#000000'}); } catch(e) {}
+      const box = document.getElementById('sg-qr');
+      if (box) { box.innerHTML = ''; try { new QRCode(box, {text: val, width: 160, height: 160, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M}); } catch(e) {} }
+    }, 100);
+    return () => clearTimeout(t);
+  }, [open, val]);
+  if (!open) return null;
+  const tabBtn = (k, label, icon) => R.createElement('button', {key: k, className: mode === k ? 'btn-save' : 'btn-cancel', style: {padding: '6px 14px', fontSize: 12}, onClick: () => setMode(k)}, R.createElement('i', {className: 'fa-solid ' + icon, style: {marginRight: 6}}), label);
+  const opts = mode === 'asset'
+    ? assetOpts.map(i => R.createElement('option', {key: i.id, value: i.id}, i.id + ' — ' + i.name + (i.user && i.user !== 'Unassigned' ? ' (' + i.user + ')' : '')))
+    : empOpts.map(e => R.createElement('option', {key: e.key, value: e.key}, e.name + (e.empId ? ' — ' + e.empId : '')));
+  return RD.createPortal(R.createElement('div', {className: 'modal-veil', onClick: e => { if (e.target === e.currentTarget) onClose(); }},
+    R.createElement('div', {className: 'modal-box', style: {maxWidth: 520}},
+      R.createElement('div', {className: 'modal-hd'},
+        R.createElement('div', {className: 'modal-title'}, R.createElement('i', {className: 'fa-solid fa-barcode'}), 'Single Barcode Label'),
+        R.createElement('button', {className: 'modal-close', onClick: onClose}, R.createElement('i', {className: 'fa-solid fa-xmark'}))
+      ),
+      R.createElement('div', {className: 'modal-bd', style: {background: '#fff'}},
+        R.createElement('div', {className: 'no-print'},
+          R.createElement('div', {style: {display: 'flex', gap: 8, marginBottom: 12}}, tabBtn('asset', 'Asset', 'fa-laptop'), tabBtn('employee', 'Employee', 'fa-user')),
+          R.createElement('div', {className: 'fg'}, R.createElement('label', null, mode === 'asset' ? 'Search asset (tag, name, serial, employee)' : 'Search employee (name, ID, department)'),
+            R.createElement('input', {className: 'fc', placeholder: 'Type to filter…', value: q, onChange: e => setQ(e.target.value)})),
+          R.createElement('div', {className: 'fg'}, R.createElement('label', null, mode === 'asset' ? 'Select one asset' : 'Select one employee'),
+            R.createElement('select', {className: 'fc', value: sel, onChange: e => setSel(e.target.value)},
+              R.createElement('option', {value: ''}, '— Select —'), opts)),
+          mode === 'asset' && R.createElement('label', {style: {color: 'var(--text)', fontSize: 12, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12}},
+            R.createElement('input', {type: 'checkbox', checked: encodeSerial, onChange: e => setEncodeSerial(e.target.checked)}), ' Encode Serial Number (if available)'),
+          mode === 'employee' && !employees.length && R.createElement('div', {className: 'hint', style: {marginBottom: 12}}, 'No employees found. Assign an asset to an employee first.')
+        ),
+        val
+          ? R.createElement('div', {id: 'print-area', style: {display: 'block', padding: 10, maxWidth: 420, margin: '0 auto'}},
+              R.createElement('div', {className: 'sticker label-sticker', style: {border: '1px solid #94a3b8', textAlign: 'center', background: '#fff', color: '#000', borderRadius: 6}},
+                R.createElement('div', {className: 'label-row'},
+                  R.createElement('img', {className: 'label-logo', src: 'cong.png', alt: 'JBSY logo'}),
+                  R.createElement('div', {className: 'label-mid'},
+                    R.createElement('div', {className: 'label-company'}, 'JBSY FOOD AND BEVERAGES CORPORATION'),
+                    R.createElement('svg', {id: 'sg-bc'}),
+                    R.createElement('div', {className: 'label-tag'}, line1)
+                  ),
+                  R.createElement('div', {className: 'label-qr', id: 'sg-qr'})
+                ),
+                R.createElement('div', {className: 'label-info'}, info)
+              ))
+          : R.createElement('div', {className: 'no-print hint', style: {textAlign: 'center', padding: 20}}, 'Select ' + (mode === 'asset' ? 'an asset' : 'an employee') + ' to generate one barcode label.')
+      ),
+      R.createElement('div', {className: 'modal-ft no-print'},
+        R.createElement('button', {className: 'btn-cancel', onClick: onClose}, 'Close'),
+        R.createElement('button', {className: 'btn-save', disabled: !val, style: !val ? {opacity: .5, cursor: 'not-allowed'} : null, onClick: () => window.print()}, R.createElement('i', {className: 'fa-solid fa-print', style: {marginRight: 6}}), 'Print Label')
+      )
+    )
+  ), document.body);
+}
 function ReportsTab({inventory,auditLogs,maintLogs,isAdmin}){
   const [showLabelModal, setShowLabelModal] = useState(false);
+  const [showSingleLabel, setShowSingleLabel] = useState(false);
   function exportExcel(){
     if(!inventory.length){toast('No data to export','w');return}
     const rows=inventory.map(i=>({'Asset Tag':i.id,'Name':i.name,'Category':i.category,'Serial':i.serial||'','Brand':i.brand||'','Status':i.status,'Employee Name':i.user||'','Employee ID':i.empId||'','Position / Title':i.position||'','Immediate Head':i.immHead||'','Employment Status':i.empStatus||'','Purpose of Use':i.purpose||'','Department / Branch':i.dept||'','Contact Number':i.contact||'','Company Email':i.email||'','Location':i.location||'','Purchase Date':i.purchaseDate||'','Warranty':i.warrantyDate||'','Cost':i.cost||0,'Condition':i.condition||'','Accessories Included':i.accessories||'','Notes':i.notes||''}));
@@ -1998,6 +2088,9 @@ function ReportsTab({inventory,auditLogs,maintLogs,isAdmin}){
     {title:'Barcode Labels',desc:'Generate and print barcode labels for all inventory assets.',icon:'fa-print',iconBg:'rgba(37,99,235,.1)',iconColor:'var(--accent2)',btns:[
       {label:'Open Generator',icon:'fa-qrcode',color:['#2563eb','#06b6d4'],onClick:()=>setShowLabelModal(true)}
     ]},
+    {title:'Single Barcode Label',desc:'Pick one asset or one employee and generate just one barcode label.',icon:'fa-barcode',iconBg:'rgba(16,185,129,.1)',iconColor:'var(--green)',btns:[
+      {label:'Generate One Label',icon:'fa-barcode',color:['#10b981','#14b8a6'],onClick:()=>setShowSingleLabel(true)}
+    ]},
   ];
   return R.createElement(Fragment, null,
     R.createElement('div',{className:'tab-pane'},
@@ -2028,7 +2121,8 @@ function ReportsTab({inventory,auditLogs,maintLogs,isAdmin}){
         )
       )
     ),
-    R.createElement(LabelPreviewModal, {open: showLabelModal, onClose: () => setShowLabelModal(false), inventory})
+    R.createElement(LabelPreviewModal, {open: showLabelModal, onClose: () => setShowLabelModal(false), inventory}),
+    R.createElement(SingleLabelModal, {open: showSingleLabel, onClose: () => setShowSingleLabel(false), inventory})
   );
 }
 function UsersTab({users,setUsers,currentUser}){
@@ -2603,7 +2697,7 @@ async function accountabilityPDF(name,items,licenses){
   y+=1;
   const bRows=items.length?items:[{}];
   tbl({head:[['#','Item','Brand / Model','Serial No.','Asset Tag','Accessories included','Condition on issue','Value (PHP)']],
-    body:bRows.map((i,x)=>{const n='item'+(x+1)+'_';return[x+1,F(n+'name',i.name),F(n+'brand',i.brand),F(n+'serial',i.serial),F(n+'assetTag',i.id),F(n+'accessories',i.accessories),F(n+'condition',i.condition),F(n+'value',i.id?money(i.cost):'','right')]}),
+    body:bRows.map((i,x)=>{const n='item'+(x+1)+'_';return[x+1,F(n+'name',i.name),F(n+'brand',i.brand),F(n+'serial',i.serial),F(n+'assetTag',i.id),F(n+'accessories',autoAcc(i)),F(n+'condition',i.condition),F(n+'value',i.id?money(i.cost):'','right')]}),
     columnStyles:{0:{cellWidth:8},1:{cellWidth:30},2:{cellWidth:30},3:{cellWidth:28},4:{cellWidth:20},5:{cellWidth:24},6:{cellWidth:20},7:{cellWidth:22,halign:'right'}}});
   y+=5;
   rich([{t:'Login / access issued (if any): ',b:1},{t:'company email, POS account, software licenses:'}],L,W,9);
@@ -2648,7 +2742,7 @@ async function accountabilityPDF(name,items,licenses){
   heading('Part E. Return and Clearance');
   lineField([{t:'Complete this part on return, transfer, or separation. Reason for return: Resignation / Termination / Transfer / '},{t:'Replacement',b:1},{t:' / Other:'}],'E_reason','',9.5);
   y+=2;
-  const retBody=[];const retN=Math.max(5,items.length);for(let x=1;x<=retN;x++){const n='E_row'+x+'_';const it=items[x-1];const itTxt=it?[it.name,it.accessories?'(+ '+it.accessories+')':''].filter(Boolean).join(' '):'';retBody.push([x,F(n+'item',itTxt),F(n+'returned',''),F(n+'condition',''),F(n+'missing',''),F(n+'amount','')])}
+  const retBody=[];const retN=Math.max(5,items.length);for(let x=1;x<=retN;x++){const n='E_row'+x+'_';const it=items[x-1];const itTxt=it?[it.name,autoAcc(it)?'(+ '+autoAcc(it)+')':''].filter(Boolean).join(' '):'';retBody.push([x,F(n+'item',itTxt),F(n+'returned',''),F(n+'condition',''),F(n+'missing',''),F(n+'amount','')])}
   tbl({head:[['#','Item','Returned\n(Y/N)','Condition on\nreturn','Missing /\ndamaged parts','Amount\ncharged (PHP)']],body:retBody,
     columnStyles:{0:{cellWidth:12},1:{cellWidth:44},2:{cellWidth:24},3:{cellWidth:32},4:{cellWidth:36},5:{cellWidth:34}},
     styles:{font:'helvetica',fontSize:9,textColor:0,lineColor:0,lineWidth:0.2,cellPadding:2,valign:'top',minCellHeight:10}});
