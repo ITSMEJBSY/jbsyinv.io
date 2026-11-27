@@ -17,7 +17,6 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 
 <style>
@@ -636,114 +635,99 @@ async function hashPassword(password) {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
-let SQL = null;
-let db = null;
-const DB_NAME = 'jbsy.db';
-async function saveDBToStorage() {
-  if (!db) return;
-  const data = db.export();
-  const idb = await new Promise((res, rej) => {
-    const req = indexedDB.open('JBSY_FileStorage', 1);
-    req.onupgradeneeded = e => e.target.result.createObjectStore('files');
-    req.onsuccess = e => res(e.target.result);
-    req.onerror = rej;
-  });
-  const tx = idb.transaction('files', 'readwrite');
-  tx.objectStore('files').put(data, DB_NAME);
-  return new Promise(r => tx.oncomplete = r);
+// ===================== API-BACKED DB LAYER =====================
+// All persistence now goes through server.py → inventory.db
+
+let _cache = { inventory: [], auditLogs: [], maintLogs: [], users: [], activity: [] };
+
+async function apiGetAll() {
+  const r = await fetch('/api/all');
+  if (!r.ok) throw new Error('Failed to load DB');
+  return await r.json();
 }
-async function loadDBFromStorage() {
-  const idb = await new Promise((res, rej) => {
-    const req = indexedDB.open('JBSY_FileStorage', 1);
-    req.onupgradeneeded = e => e.target.result.createObjectStore('files');
-    req.onsuccess = e => res(e.target.result);
-    req.onerror = rej;
-  });
-  return new Promise((res) => {
-    const tx = idb.transaction('files', 'readonly');
-    const req = tx.objectStore('files').get(DB_NAME);
-    req.onsuccess = () => res(req.result || null);
-    req.onerror = () => res(null);
-  });
-}
+
 async function openDB() {
-  SQL = await initSqlJs({
-    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-  });
-  const savedData = await loadDBFromStorage();
-  if (savedData) {
-    db = new SQL.Database(new Uint8Array(savedData));
-    try { db.run("ALTER TABLE inventory ADD COLUMN attachment TEXT"); } catch(e) {}
-    try { db.run("ALTER TABLE users ADD COLUMN passwordHash TEXT"); } catch(e) {}
-    try { db.run("ALTER TABLE users ADD COLUMN created TEXT"); } catch(e) {}
-  } else {
-    try {
-      const response = await fetch('jbsy.db');
-      if (response.ok) {
-        const arrayBuffer = await response.arrayBuffer();
-        db = new SQL.Database(new Uint8Array(arrayBuffer));
-        try { db.run("ALTER TABLE inventory ADD COLUMN attachment TEXT"); } catch(e) {}
-        try { db.run("ALTER TABLE users ADD COLUMN passwordHash TEXT"); } catch(e) {}
-        try { db.run("ALTER TABLE users ADD COLUMN created TEXT"); } catch(e) {}
-        await saveDBToStorage();
-      } else {
-        throw new Error("jbsy.db not found on server");
-      }
-    } catch (err) {
-      console.log("Could not load jbsy.db from server, starting fresh.", err);
-      db = new SQL.Database();
-      db.run(`
-        CREATE TABLE IF NOT EXISTS inventory (id TEXT PRIMARY KEY, name TEXT, category TEXT, serial TEXT, brand TEXT, status TEXT, user TEXT, location TEXT, purchaseDate TEXT, warrantyDate TEXT, cost REAL, condition TEXT, notes TEXT, attachment TEXT);
-        CREATE TABLE IF NOT EXISTS auditLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, tag TEXT, name TEXT, action TEXT, user TEXT, notes TEXT);
-        CREATE TABLE IF NOT EXISTS maintLogs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, tag TEXT, name TEXT, title TEXT, tech TEXT, cost REAL, notes TEXT, resolved INTEGER);
-        CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, passwordHash TEXT, created TEXT);
-        CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, msg TEXT, ts TEXT, color TEXT);
-      `);
-      await saveDBToStorage();
-    }
-  }
-  migrateDB();  
-  await saveDBToStorage();
+  // Initial load of all data from server
+  const data = await apiGetAll();
+  _cache.inventory = data.inventory || [];
+  _cache.auditLogs = data.auditLogs || [];
+  _cache.maintLogs = data.maintLogs || [];
+  _cache.users     = data.users     || [];
+  _cache.activity  = data.activity  || [];
 }
+
 async function dbAll(store) {
-  const validTables = ['inventory', 'auditLogs', 'maintLogs', 'users', 'activity'];
-  if (!validTables.includes(store)) return [];
-  const newestFirst = ['auditLogs','maintLogs','activity'].includes(store) ? ' ORDER BY id DESC' : '';
-  const res = db.exec(`SELECT * FROM ${store}${newestFirst}`);
-  if (!res.length) return [];
-  const cols = res[0].columns;
-  return res[0].values.map(row => {
-    const obj = {};
-    cols.forEach((c, i) => obj[c] = row[i]);
-    return obj;
-  });
+  // Re-fetch from server to guarantee freshness
+  const data = await apiGetAll();
+  _cache.inventory = data.inventory || [];
+  _cache.auditLogs = data.auditLogs || [];
+  _cache.maintLogs = data.maintLogs || [];
+  _cache.users     = data.users     || [];
+  _cache.activity  = data.activity  || [];
+  return _cache[store] || [];
 }
+
 async function dbPut(store, item) {
-  const keys = Object.keys(item);
-  const placeholders = keys.map(() => '?').join(',');
-  const values = keys.map(k => item[k]);
-  if (store === 'users') db.run(`INSERT OR REPLACE INTO users (${keys.join(',')}) VALUES (${placeholders})`, values);
-  else if (store === 'inventory') db.run(`INSERT OR REPLACE INTO inventory (${keys.join(',')}) VALUES (${placeholders})`, values);
-  await saveDBToStorage();
+  if (store === 'users') {
+    const r = await fetch('/api/generic/save', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ table: 'users', item })
+    });
+    if (!r.ok) throw new Error('Save failed');
+    return;
+  }
+  if (store === 'inventory') {
+    const r = await fetch('/api/inventory/save', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(item)
+    });
+    if (!r.ok) throw new Error('Save failed');
+    return;
+  }
+  throw new Error('dbPut: unsupported store ' + store);
 }
+
 async function dbAdd(store, item) {
-  delete item.id;
-  const keys = Object.keys(item);
-  const placeholders = keys.map(() => '?').join(',');
-  const values = keys.map(k => item[k]);
-  db.run(`INSERT INTO ${store} (${keys.join(',')}) VALUES (${placeholders})`, values);
-  item.id = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
-  await saveDBToStorage();
+  if (['auditLogs','maintLogs','activity'].includes(store)) {
+    const r = await fetch('/api/generic/add', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ table: store, item })
+    });
+    if (!r.ok) throw new Error('Add failed');
+    const j = await r.json();
+    item.id = j.id;
+    return;
+  }
+  throw new Error('dbAdd: unsupported store ' + store);
 }
+
 async function dbDel(store, key) {
-  if (store === 'inventory') db.run(`DELETE FROM inventory WHERE id = ?`, [key]);
-  if (store === 'users') db.run(`DELETE FROM users WHERE username = ?`, [key]);
-  await saveDBToStorage();
+  const keycol = store === 'users' ? 'username' : 'id';
+  const r = await fetch('/api/generic/delete', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ table: store, key, keycol })
+  });
+  if (!r.ok) throw new Error('Delete failed');
 }
+
 async function dbClear(store) {
-  db.run(`DELETE FROM ${store}`);
-  await saveDBToStorage();
+  const r = await fetch('/api/generic/clear', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ table: store })
+  });
+  if (!r.ok) throw new Error('Clear failed');
 }
+
+// Kept for compatibility — no-op since each write already persists
+async function saveDBToStorage() { /* no-op: server handles persistence */ }
+async function loadDBFromStorage() { return null; }
+async function migrateDB() { /* no-op: server handles migration */ }
+
 function uid(){
   const key='jbsy_tag_counter';
   let next=parseInt(sessionStorage.getItem(key)||'0',10)+1;
